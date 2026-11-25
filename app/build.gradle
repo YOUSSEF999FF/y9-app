@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Secrets/URLs come from keys.properties (gitignored, written by tools/y9tool.py init) -> BuildConfig.
+def keysProps = new Properties()
+def keysFile = rootProject.file('keys.properties')
+if (keysFile.exists()) { keysFile.withInputStream { keysProps.load(it) } }
+def kp = { String k, String d -> '"' + keysProps.getProperty(k, d) + '"' }
+
+// Release keystore comes from keys.properties (base64). A STABLE signing key is what lets users update in place.
+def ksB64 = keysProps.getProperty('keystore_b64')
+def ksFile = new File(layout.buildDirectory.get().asFile, 'y9-release.p12')
+if (ksB64) {
+    ksFile.parentFile.mkdirs()
+    ksFile.bytes = ksB64.decodeBase64()
+}
+
+android {
+    namespace 'com.y9pro.v5'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.y9pro.v5"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "5.0.0"
+        buildConfigField "String", "CONFIG_URL", kp('config_url', 'https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/site/config.enc.json')
+        buildConfigField "String", "SIGN_PUBLIC_KEY_B64", kp('sign_public_key', 'REPLACE_ME')
+        buildConfigField "String", "AES_KEY_B64", kp('aes_key', 'REPLACE_ME')
+    }
+
+    signingConfigs {
+        y9 {
+            if (ksB64) {
+                storeFile ksFile
+                storeType 'pkcs12'
+                storePassword keysProps.getProperty('keystore_password')
+                keyAlias 'y9'
+                keyPassword keysProps.getProperty('keystore_password')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (ksB64) signingConfig signingConfigs.y9
+        }
+        release {
+            if (ksB64) signingConfig signingConfigs.y9
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures { buildConfig true }
+}
+// No third-party dependencies on purpose: smaller APK, fewer moving parts.

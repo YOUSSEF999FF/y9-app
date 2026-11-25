@@ -1,0 +1,20 @@
+{
+  "app": {
+    "latest_version_code": 1,
+    "update": {
+      "title": "New update available",
+      "description": "A new version of Y9 PRO V5 is ready.",
+      "button": "Update now",
+      "url": ""
+    }
+  },
+  "pass_links": {
+    "get_pass": { "label": "Get Pass", "url": "https://example.com/get-pass" },
+    "how_to": { "label": "How To Get Pass", "url": "https://example.com/how-to" }
+  },
+  "home_buttons": {
+    "start": { "label": "START", "enabled": true },
+    "explanations": { "label": "Explanations", "enabled": true },
+    "info": { "label": "YOUSSEF 999 INFO", "enabled": true }
+  }
+}

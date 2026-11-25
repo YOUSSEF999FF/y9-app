@@ -1,0 +1,10 @@
+# ---- NEVER commit these (secrets). In the GitHub-only flow they only exist inside the build job ----
+keys/
+keys.properties
+# ---- Android ----
+build/
+.gradle/
+local.properties
+*.jks
+*.keystore
+.idea/

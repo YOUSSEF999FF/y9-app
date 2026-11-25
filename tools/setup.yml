@@ -1,0 +1,115 @@
+name: Y9 build
+
+# Runs automatically when you upload the project .zip or edit config/config.json.
+# Or by hand: Actions -> "Y9 build" -> Run workflow.
+on:
+  push:
+    paths:
+      - "*.zip"
+      - "config/config.json"
+  workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "Also build a new APK? (turn OFF if you only changed the password/config)"
+        type: boolean
+        default: true
+      build_type:
+        description: "release (fast, recommended) or debug (only if release fails)"
+        type: choice
+        options: [release, debug]
+        default: release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: y9-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          Y9_MASTER_KEY: ${{ secrets.Y9_MASTER_KEY }}
+          Y9_APP_PASSWORD: ${{ secrets.Y9_APP_PASSWORD }}
+        run: |
+          [ -n "$Y9_MASTER_KEY" ] || { echo "::error::Add the repository secret Y9_MASTER_KEY (24+ characters)."; exit 1; }
+          [ -n "$Y9_APP_PASSWORD" ] || { echo "::error::Add the repository secret Y9_APP_PASSWORD (8+ characters)."; exit 1; }
+
+      - name: Unpack the project zip (if one was uploaded)
+        id: unpack
+        run: |
+          z=$(ls -1 *.zip 2>/dev/null | head -n1 || true)
+          if [ -n "$z" ]; then
+            mkdir /tmp/proj && unzip -q "$z" -d /tmp/proj
+            src=$(find /tmp/proj -mindepth 1 -maxdepth 1 -type d | head -n1)
+            [ -n "$src" ] || src=/tmp/proj
+            rm -rf "$src/.github"          # this token may not change workflow files
+            cp -a "$src"/. ./
+            git rm -q --ignore-unmatch "$z"; rm -f "$z"
+            echo "zip=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "zip=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Derive keys + build the encrypted, signed config
+        env:
+          Y9_MASTER_KEY: ${{ secrets.Y9_MASTER_KEY }}
+          Y9_APP_PASSWORD: ${{ secrets.Y9_APP_PASSWORD }}
+          Y9_REPO: ${{ github.repository }}
+          Y9_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          pip install --quiet "cryptography>=44"
+          python tools/y9ci.py
+
+      - name: Save the project + config in the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Y9: update project/config"
+          git push
+
+      - name: Decide if an APK is needed
+        id: plan
+        run: |
+          if [ "${{ steps.unpack.outputs.zip }}" = "yes" ] || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_apk }}" = "true" ]; }; then
+            echo "apk=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "apk=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.plan.outputs.apk == 'yes'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.plan.outputs.apk == 'yes'
+        with:
+          gradle-version: "8.7"
+
+      - name: Build the APK
+        if: steps.plan.outputs.apk == 'yes'
+        run: gradle :app:assemble${{ inputs.build_type == 'debug' && 'Debug' || 'Release' }} --no-daemon
+
+      - name: Publish the APK as the "latest" release
+        if: steps.plan.outputs.apk == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=$(find app/build/outputs/apk -name '*.apk' | head -n1)
+          test -n "$f" || { echo "::error::No APK produced"; exit 1; }
+          cp "$f" Y9-PRO-V5.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest Y9-PRO-V5.apk --title "Y9 PRO V5 (latest)" --latest \
+            --notes "Built by GitHub Actions from commit ${GITHUB_SHA::7}"
