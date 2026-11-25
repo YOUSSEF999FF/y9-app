@@ -7,6 +7,7 @@ on:
     paths:
       - "*.zip"
       - "config/config.json"
+      - ".github/workflows/setup.yml"
   workflow_dispatch:
     inputs:
       build_apk:
@@ -32,14 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check secrets
-        env:
-          Y9_MASTER_KEY: ${{ secrets.Y9_MASTER_KEY }}
-          Y9_APP_PASSWORD: ${{ secrets.Y9_APP_PASSWORD }}
-        run: |
-          [ -n "$Y9_MASTER_KEY" ] || { echo "::error::Add the repository secret Y9_MASTER_KEY (24+ characters)."; exit 1; }
-          [ -n "$Y9_APP_PASSWORD" ] || { echo "::error::Add the repository secret Y9_APP_PASSWORD (8+ characters)."; exit 1; }
-
       - name: Unpack the project zip (if one was uploaded)
         id: unpack
         run: |
@@ -55,6 +48,23 @@ jobs:
           else
             echo "zip=no" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Save the unpacked project in the repository
+        if: steps.unpack.outputs.zip == 'yes'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Y9: unpack project"
+          git push
+
+      - name: Check secrets
+        env:
+          Y9_MASTER_KEY: ${{ secrets.Y9_MASTER_KEY }}
+          Y9_APP_PASSWORD: ${{ secrets.Y9_APP_PASSWORD }}
+        run: |
+          [ -n "$Y9_MASTER_KEY" ] || { echo "::error::Add the repository secret Y9_MASTER_KEY (24+ characters)."; exit 1; }
+          [ -n "$Y9_APP_PASSWORD" ] || { echo "::error::Add the repository secret Y9_APP_PASSWORD (8+ characters)."; exit 1; }
 
       - uses: actions/setup-python@v5
         with:
@@ -113,3 +123,4 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest Y9-PRO-V5.apk --title "Y9 PRO V5 (latest)" --latest \
             --notes "Built by GitHub Actions from commit ${GITHUB_SHA::7}"
+ 
